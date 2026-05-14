@@ -1,17 +1,32 @@
 import time
 import os
-import dask
+import shutil
 import dask.dataframe as dd
+from dask.distributed import Client, LocalCluster
 
 DATA_PATH = "data/yellow_tripdata_2024-*.parquet"
 OUTPUT_DIR = "output/dask_taxi_features"
 
-os.makedirs("output", exist_ok=True)
-
 def main():
-    # Không dùng dask.distributed để tránh lỗi socket trên Windows/Python 3.13
-    dask.config.set(scheduler="threads", num_workers=4)
-    print("Dask scheduler: threads, num_workers=4")
+    os.makedirs("output", exist_ok=True)
+
+    if os.path.exists(OUTPUT_DIR):
+        shutil.rmtree(OUTPUT_DIR)
+
+    # Cấu hình an toàn cho Windows:
+    # 1 worker, 4 threads, không tách nhiều process
+    cluster = LocalCluster(
+        n_workers=2,
+        threads_per_worker=2,
+        processes=True ,
+        memory_limit="4GB",
+        dashboard_address="127.0.0.1:8787"
+    )
+
+    client = Client(cluster)
+
+    print("Dask dashboard:", client.dashboard_link)
+    print("Cluster info:", client)
 
     start = time.perf_counter()
 
@@ -29,7 +44,13 @@ def main():
     ]
 
     print("🔄 Đọc dữ liệu Parquet bằng Dask...")
-    df = dd.read_parquet(DATA_PATH, columns=columns, engine="pyarrow")
+    df = dd.read_parquet(
+        DATA_PATH,
+        columns=columns,
+        engine="pyarrow"
+    )
+
+    print("Số partition ban đầu:", df.npartitions)
 
     print("🔧 Làm sạch dữ liệu...")
     df["pickup_datetime"] = dd.to_datetime(df["tpep_pickup_datetime"])
@@ -100,8 +121,7 @@ def main():
         OUTPUT_DIR,
         engine="pyarrow",
         write_index=False,
-        overwrite=True,
-        compute_kwargs={"scheduler": "threads", "num_workers": 4}
+        overwrite=True
     )
 
     elapsed = time.perf_counter() - start
@@ -111,6 +131,11 @@ def main():
     print(f"⏱️ Time: {elapsed:.2f} seconds")
     print(f"📁 Output: {OUTPUT_DIR}")
     print("=" * 60)
+
+    #input("Nhấn Enter để đóng Dask cluster...")
+
+    client.close()
+    cluster.close()
 
 if __name__ == "__main__":
     main()
