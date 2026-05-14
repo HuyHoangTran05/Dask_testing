@@ -1,7 +1,7 @@
 import time
 import os
+import dask
 import dask.dataframe as dd
-from dask.distributed import Client, LocalCluster
 
 DATA_PATH = "data/yellow_tripdata_2024-*.parquet"
 OUTPUT_DIR = "output/dask_taxi_features"
@@ -9,14 +9,9 @@ OUTPUT_DIR = "output/dask_taxi_features"
 os.makedirs("output", exist_ok=True)
 
 def main():
-    cluster = LocalCluster(
-        n_workers=4,
-        threads_per_worker=2,
-        memory_limit="3GB"
-    )
-    client = Client(cluster)
-
-    print("Dask dashboard:", client.dashboard_link)
+    # Không dùng dask.distributed để tránh lỗi socket trên Windows/Python 3.13
+    dask.config.set(scheduler="threads", num_workers=4)
+    print("Dask scheduler: threads, num_workers=4")
 
     start = time.perf_counter()
 
@@ -56,6 +51,7 @@ def main():
     print("🧠 Tạo feature...")
     df["pickup_date"] = df["pickup_datetime"].dt.floor("D")
     df["pickup_hour"] = df["pickup_datetime"].dt.hour.astype("int16")
+    df["PULocationID"] = df["PULocationID"].astype("int32")
 
     df["fare_per_mile"] = df["fare_amount"] / df["trip_distance"]
     df["tip_rate"] = df["tip_amount"] / df["total_amount"]
@@ -104,7 +100,8 @@ def main():
         OUTPUT_DIR,
         engine="pyarrow",
         write_index=False,
-        overwrite=True
+        overwrite=True,
+        compute_kwargs={"scheduler": "threads", "num_workers": 4}
     )
 
     elapsed = time.perf_counter() - start
@@ -114,12 +111,6 @@ def main():
     print(f"⏱️ Time: {elapsed:.2f} seconds")
     print(f"📁 Output: {OUTPUT_DIR}")
     print("=" * 60)
-
-    input("Nhấn Enter để đóng Dask cluster...")
-
-
-    client.close()
-    cluster.close()
 
 if __name__ == "__main__":
     main()
